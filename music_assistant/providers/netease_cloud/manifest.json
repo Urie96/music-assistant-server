@@ -1,0 +1,9 @@
+{
+  "type": "music",
+  "domain": "netease_cloud",
+  "name": "Netease Cloud Provider",
+  "description": "Test/Example Music Provider for Music Assistant.",
+  "codeowners": ["@urie96"],
+  "requirements": [],
+  "documentation": "https://music-assistant.io/music-providers/demo/"
+}

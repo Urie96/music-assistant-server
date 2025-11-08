@@ -33,16 +33,51 @@ env:
   BASE_IMAGE_VERSION_NIGHTLY: "1.4.4"
 
 jobs:
-  validate-version:
-    name: Validate version and prepare build
+  preflight-checks:
+    name: Run tests and linting before release
     runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.branch.outputs.branch }}
+    steps:
+      - name: Determine branch to use
+        id: branch
+        run: |
+          CHANNEL="${{ inputs.channel }}"
+
+          if [ "$CHANNEL" = "stable" ]; then
+            echo "branch=stable" >> $GITHUB_OUTPUT
+            echo "Using stable branch for stable release"
+          else
+            echo "branch=dev" >> $GITHUB_OUTPUT
+            echo "Using dev branch for $CHANNEL release"
+          fi
+
+      - name: Trigger test workflow
+        uses: convictional/trigger-workflow-and-wait@v1.6.5
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: server
+          github_token: ${{ secrets.PRIVILEGED_GITHUB_TOKEN }}
+          workflow_file_name: test.yml
+          ref: ${{ steps.branch.outputs.branch }}
+          wait_interval: 10
+          propagate_failure: true
+          trigger_workflow: true
+          wait_workflow: true
+
+  validate-and-build:
+    name: Validate version and build Python artifact
+    runs-on: ubuntu-latest
+    needs: preflight-checks
     outputs:
       version: ${{ inputs.version }}
       is_prerelease: ${{ steps.validate.outputs.is_prerelease }}
       base_image_version: ${{ steps.validate.outputs.base_image_version }}
+      branch: ${{ needs.preflight-checks.outputs.branch }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ needs.preflight-checks.outputs.branch }}
           fetch-depth: 0
 
       - name: Validate version number format
@@ -114,6 +149,16 @@ jobs:
             tomli_w.dump(pyproject, f)
 
           print(f"✅ Updated pyproject.toml version to ${{ inputs.version }}")
+
+      - name: Build python package
+        run: >-
+          python3 -m build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-dists
+          path: dist/
 
   create-release:
     name: Create GitHub Release

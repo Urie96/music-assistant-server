@@ -39,15 +39,6 @@ if TYPE_CHECKING:
     from music_assistant.models import ProviderInstanceType
 
 
-SUPPORTED_FEATURES = {
-    ProviderFeature.SEARCH,
-    ProviderFeature.RECOMMENDATIONS,
-    ProviderFeature.LIBRARY_PLAYLISTS,
-    ProviderFeature.ARTIST_ALBUMS,
-    ProviderFeature.ARTIST_TOPTRACKS,
-}
-
-
 async def setup(
     mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
 ) -> ProviderInstanceType:
@@ -55,7 +46,7 @@ async def setup(
     # setup is called when the user wants to setup a new provider instance.
     # you are free to do any preflight checks here and but you must return
     #  an instance of the provider.
-    return NeteaseCloudProvider(mass, manifest, config, SUPPORTED_FEATURES)
+    return NeteaseCloudProvider(mass, manifest, config)
 
 
 CONF_API_HOST = "api_host"
@@ -96,6 +87,17 @@ class NeteaseCloudProvider(MusicProvider):
 
     _api_host: str = ""
     _uid: str = ""
+
+    @property
+    def supported_features(self) -> set[ProviderFeature]:
+        """Return the features supported by this Provider."""
+        return {
+            ProviderFeature.SEARCH,
+            ProviderFeature.RECOMMENDATIONS,
+            ProviderFeature.LIBRARY_PLAYLISTS,
+            ProviderFeature.ARTIST_ALBUMS,
+            ProviderFeature.ARTIST_TOPTRACKS,
+        }
 
     async def handle_async_init(self) -> None:
         self._api_host = self.config.get_value(CONF_API_HOST)
@@ -181,9 +183,7 @@ class NeteaseCloudProvider(MusicProvider):
         )
         return [self._parse_track(track) for track in data["songs"]]
 
-    async def get_stream_details(
-        self, item_id: str, media_type: MediaType
-    ) -> StreamDetails:
+    async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
         """Get streamdetails for a track/radio."""
         data = await self.call_api(f"/song/url/v1?id={item_id}&level=exhigh")
         return StreamDetails(

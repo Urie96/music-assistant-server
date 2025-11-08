@@ -95,6 +95,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install build dependencies
+        run: >-
+          pip install build tomli tomli-w
+
       - name: Update version in pyproject.toml
         shell: python
         run: |-

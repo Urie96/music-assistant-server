@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
@@ -114,52 +115,52 @@ class NeteaseCloudProvider(MusicProvider):
         limit: int = 5,
     ) -> SearchResults:
         """Perform search on musicprovider."""
-        resp = await self.call_api(f"/search?keywords={search_query}&limit={limit}")
+        resp = await self._call_api(f"/search?keywords={search_query}&limit={limit}")
         return SearchResults(
             tracks=[self._parse_track(track) for track in resp["result"]["songs"]],
         )
 
     async def get_library_playlists(self) -> AsyncGenerator[Playlist, None]:
         """Retrieve library/subscribed playlists from the provider."""
-        data = await self.call_api(f"/user/playlist?uid={self._uid}")
+        data = await self._call_api(f"/user/playlist?uid={self._uid}")
         for playlist in data["playlist"]:
             yield self._parse_playlist(playlist)
 
     @use_cache(3600 * 24 * 30)
     async def get_artist(self, prov_artist_id: str) -> Artist:
         """Get full artist details by id."""
-        data = await self.call_api(f"/artist/detail?id={prov_artist_id}")
+        data = await self._call_api(f"/artist/detail?id={prov_artist_id}")
         return self._parse_artist(data["data"]["artist"])
 
     @use_cache(3600 * 24 * 30)
     async def get_artist_albums(self, prov_artist_id: str) -> list[Album]:
         """Get a list of all albums for the given artist."""
-        data = await self.call_api(f"/artist/album?id={prov_artist_id}&limit=10")
+        data = await self._call_api(f"/artist/album?id={prov_artist_id}&limit=10")
         return [self._parse_album(track) for track in data["hotAlbums"]]
 
     @use_cache(3600 * 24 * 30)
     async def get_artist_toptracks(self, prov_artist_id: str) -> list[Track]:
         """Get a list of most popular tracks for the given artist."""
-        data = await self.call_api(f"/artists?id={prov_artist_id}")
-        return [self._parse_track(track) for track in data["hotSongs"]]
+        data = await self._call_api(f"/artists?id={prov_artist_id}")
+        return await self._parse_tracks(data["hotSongs"])
 
     @use_cache(3600 * 24 * 30)
     async def get_album(self, prov_album_id: str) -> Album:
         """Get full album details by id."""
-        data = await self.call_api(f"/album?id={prov_album_id}")
+        data = await self._call_api(f"/album?id={prov_album_id}")
         return self._parse_album(data["album"])
 
     @use_cache(3600 * 24 * 30)
     async def get_track(self, prov_track_id: str) -> Track:
         """Get full track details by id."""
-        data = await self.call_api(f"/song/detail/?ids={prov_track_id}")
+        data = await self._call_api(f"/song/detail/?ids={prov_track_id}")
         return self._parse_track(data["songs"][0])
 
     @use_cache(3600 * 24)
     async def get_playlist(self, prov_playlist_id: str) -> Playlist:
         """Get full playlist details by id."""
-        data = await self.call_api(f"/user/playlist?uid={prov_playlist_id}")
-        return self._parse_playlist(data["playlist"][0])
+        data = await self._call_api(f"/playlist/detail?id={prov_playlist_id}")
+        return self._parse_playlist(data["playlist"])
 
     @use_cache(3600 * 24 * 30)
     async def get_album_tracks(
@@ -167,8 +168,8 @@ class NeteaseCloudProvider(MusicProvider):
         prov_album_id: str,
     ) -> list[Track]:
         """Get album tracks for given album id."""
-        data = await self.call_api(f"/album?id={prov_album_id}")
-        return [self._parse_track(track) for track in data["songs"]]
+        data = await self._call_api(f"/album?id={prov_album_id}")
+        return await self._parse_tracks(data["songs"])
 
     @use_cache(3600 * 24)
     async def get_playlist_tracks(
@@ -178,14 +179,14 @@ class NeteaseCloudProvider(MusicProvider):
     ) -> list[Track]:
         """Get all playlist tracks for given playlist id."""
         limit = 20
-        data = await self.call_api(
+        data = await self._call_api(
             f"/playlist/track/all?id={prov_playlist_id}&limit={limit}&offset={page * limit}"
         )
-        return [self._parse_track(track) for track in data["songs"]]
+        return await self._parse_tracks(data["songs"])
 
     async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
         """Get streamdetails for a track/radio."""
-        data = await self.call_api(f"/song/url/v1?id={item_id}&level=exhigh")
+        data = await self._call_api(f"/song/url/v1?id={item_id}&level=exhigh")
         return StreamDetails(
             provider=self.instance_id,
             item_id=item_id,
@@ -203,25 +204,63 @@ class NeteaseCloudProvider(MusicProvider):
         """Resolve an image from an image path."""
         return path
 
+    @use_cache(3600 * 24)
     async def recommendations(self) -> list[RecommendationFolder]:
-        """
-        Get this provider's recommendations.
+        """Get this provider's recommendations."""
+        res: RecommendationFolder = RecommendationFolder(
+            item_id="netease_cloud_recommend",
+            provider=self.domain,
+            name="网易云推荐",
+        )
+        res.items.append(
+            self._parse_playlist(
+                {
+                    "id": "3778678",
+                    "name": "热歌榜",
+                    "coverImgUrl": "https://p3.music.126.net/0SUEG8yDACfx0Bw2MYFv4Q==/109951170048519512.jpg",
+                }
+            )
+        )
+        data = await self._call_api("/personalized?limit=5")
+        if data["result"] and data["result"][0]:
+            for playlist in data["result"]:
+                res.items.append(self._parse_playlist(playlist))
+        return [res]
 
-        Returns an actual (and often personalised) list of recommendations
-        from this provider for the user/account.
-        """
-        # Get this provider's recommendations.
-        # This is only called if you reported the RECOMMENDATIONS feature in the supported_features.
-        return []
+    @use_cache(3600 * 24 * 30)
+    async def _track_available(self, prov_track_id: str) -> bool:
+        try:
+            data = await self._call_api(f"/check/music?id={prov_track_id}")
+            self.logger.debug("track %s available %s", prov_track_id, data["success"])
+            return data["success"]
+        except:
+            self.logger.warning("track %s check available error", prov_track_id)
+            return True
 
-    async def call_api(self, path: str):
+    async def _call_api(self, path: str):
         async with self.mass.http_session.get(
             f"{self._api_host}{path}",
         ) as response:
             return await response.json()
 
+    async def _parse_tracks(self, objs: list[dict]) -> list[Track]:
+        self.logger.debug("parsing %d tracks", len(objs))
+        semaphore = asyncio.Semaphore(10)
+
+        async def parse(obj: dict):
+            if str(obj.get("fee", "0")) == "0":  # 免费或无版权
+                async with semaphore:
+                    available = await self._track_available(str(obj["id"]))
+                    if not available:
+                        return None
+            return self._parse_track(obj)
+
+        tasks = [parse(obj) for obj in objs]
+        results = await asyncio.gather(*tasks)
+        return [result for result in results if result is not None]
+
     def _parse_track(self, obj: dict) -> Track:
-        track_id = obj["id"]
+        track_id = str(obj["id"])
         track = Track(
             item_id=track_id,
             provider=self.instance_id,
@@ -245,12 +284,12 @@ class NeteaseCloudProvider(MusicProvider):
 
     def _parse_artist(self, obj: dict) -> Artist:
         artist = Artist(
-            item_id=obj["id"],
+            item_id=str(obj["id"]),
             name=obj["name"],
             provider=self.instance_id,
             provider_mappings={
                 ProviderMapping(
-                    item_id=obj["id"],
+                    item_id=str(obj["id"]),
                     provider_domain=self.domain,
                     provider_instance=self.instance_id,
                     available=True,
@@ -270,7 +309,7 @@ class NeteaseCloudProvider(MusicProvider):
 
     def _parse_album(self, obj: dict) -> Album:
         album = Album(
-            item_id=obj["id"],
+            item_id=str(obj["id"]),
             provider=self.instance_id,
             name=obj["name"],
             provider_mappings={
@@ -295,7 +334,7 @@ class NeteaseCloudProvider(MusicProvider):
 
     def _parse_playlist(self, obj: dict) -> Playlist:
         playlist = Playlist(
-            item_id=obj["id"],
+            item_id=str(obj["id"]),
             provider=self.instance_id,
             name=obj["name"],
             provider_mappings={
@@ -312,6 +351,15 @@ class NeteaseCloudProvider(MusicProvider):
                 MediaItemImage(
                     type=ImageType.THUMB,
                     path=obj["coverImgUrl"],
+                    provider=self.instance_id,
+                    remotely_accessible=True,
+                )
+            )
+        if "picUrl" in obj:
+            playlist.metadata.add_image(
+                MediaItemImage(
+                    type=ImageType.THUMB,
+                    path=obj["picUrl"],
                     provider=self.instance_id,
                     remotely_accessible=True,
                 )

@@ -364,6 +364,17 @@ class PlayerQueuesController(CoreController):
             return  # no change
         queue.repeat_mode = repeat_mode
         self.signal_update(queue_id)
+        if (
+            queue.state == PlaybackState.PLAYING
+            and queue.index_in_buffer is not None
+            and queue.index_in_buffer == queue.current_index
+        ):
+            # if the queue is playing,
+            # ensure to (re)queue the next track because it might have changed
+            # note that we only do this if the player has loaded the current track
+            # if not, we wait until it has loaded to prevent conflicts
+            if next_item := self.get_next_item(queue_id, queue.index_in_buffer):
+                self._enqueue_next_item(queue_id, next_item)
 
     @api_command("player_queues/play_media")
     async def play_media(
@@ -1048,9 +1059,10 @@ class PlayerQueuesController(CoreController):
                 if queue.enqueued_media_items:
                     # we need to restore the MediaItem objects for the enqueued media items
                     # Items from cache may be dicts that need deserialization
-
                     restored_enqueued_items: list[MediaItemType] = []
-                    cached_items: list[Any] = cast("list[Any]", queue.enqueued_media_items)
+                    cached_items: list[dict[str, Any] | MediaItemType] = cast(
+                        "list[dict[str, Any] | MediaItemType]", queue.enqueued_media_items
+                    )
                     for item in cached_items:
                         if isinstance(item, dict):
                             restored_item = media_from_dict(item)

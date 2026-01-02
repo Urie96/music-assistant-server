@@ -62,10 +62,6 @@ async def get_config_entries(
 ) -> tuple[ConfigEntry, ...]:
     """
     Return Config entries to setup this provider.
-
-    instance_id: id of an existing provider instance (None if new instance setup).
-    action: [optional] action key called from config entries UI.
-    values: the (intermediate) raw values for config entries sent with the action.
     """
     return (
         ConfigEntry(
@@ -83,30 +79,24 @@ async def get_config_entries(
     )
 
 
+SUPPORTED_FEATURES = {
+    ProviderFeature.SEARCH,
+    ProviderFeature.RECOMMENDATIONS,
+    ProviderFeature.LIBRARY_PLAYLISTS,
+    ProviderFeature.ARTIST_ALBUMS,
+    ProviderFeature.ARTIST_TOPTRACKS,
+}
+
+
 class NeteaseCloudProvider(MusicProvider):
     """Provider for Netease Cloud Music."""
 
     _api_host: str = ""
     _uid: str = ""
 
-    @property
-    def supported_features(self) -> set[ProviderFeature]:
-        """Return the features supported by this Provider."""
-        return {
-            ProviderFeature.SEARCH,
-            ProviderFeature.RECOMMENDATIONS,
-            ProviderFeature.LIBRARY_PLAYLISTS,
-            ProviderFeature.ARTIST_ALBUMS,
-            ProviderFeature.ARTIST_TOPTRACKS,
-        }
-
     async def handle_async_init(self) -> None:
         self._api_host = self.config.get_value(CONF_API_HOST)
         self._uid = self.config.get_value(CONF_UID)
-
-    @property
-    def is_streaming_provider(self) -> bool:
-        return True
 
     async def search(  # type: ignore[empty-body]
         self,

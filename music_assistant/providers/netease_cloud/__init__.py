@@ -40,16 +40,6 @@ if TYPE_CHECKING:
     from music_assistant.models import ProviderInstanceType
 
 
-async def setup(
-    mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
-) -> ProviderInstanceType:
-    """Initialize provider(instance) with given configuration."""
-    # setup is called when the user wants to setup a new provider instance.
-    # you are free to do any preflight checks here and but you must return
-    #  an instance of the provider.
-    return NeteaseCloudProvider(mass, manifest, config)
-
-
 CONF_API_HOST = "api_host"
 CONF_UID = "uid"
 
@@ -72,7 +62,7 @@ async def get_config_entries(
         ),
         ConfigEntry(
             key=CONF_UID,
-            type=ConfigEntryType.SECURE_STRING,
+            type=ConfigEntryType.STRING,
             label="User ID",
             required=True,
         ),
@@ -86,6 +76,13 @@ SUPPORTED_FEATURES = {
     ProviderFeature.ARTIST_ALBUMS,
     ProviderFeature.ARTIST_TOPTRACKS,
 }
+
+
+async def setup(
+    mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
+) -> ProviderInstanceType:
+    """Initialize provider(instance) with given configuration."""
+    return NeteaseCloudProvider(mass, manifest, config, SUPPORTED_FEATURES)
 
 
 class NeteaseCloudProvider(MusicProvider):
